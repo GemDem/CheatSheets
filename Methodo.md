@@ -198,6 +198,12 @@ TI AD :
 	- https://github.com/ly4k/SpoolFool
 	- https://github.com/zblurx/certsync
 	- https://github.com/garrettfoster13/sccmhunter
+ 	- https://gist.github.com/EvanMcBroom/dceb1c7070ee3278eaedd04b42aed279
+	- https://j4s0nmo0n.github.io/belettetimoree.github.io/2023-12-01-WSUS-to-ESC8.html
+	- https://posts.specterops.io/misconfiguration-manager-overlooked-and-overprivileged-70983b8f350d
+	- https://github.com/lkarlslund/ldapnomnom
+ 	- https://github.com/GhostPack/Lockless
+  	- https://github.com/skelsec/msldap/ 
 	- https://decoder.cloud/2024/04/24/hello-im-your-domain-admin-and-i-want-to-authenticate-against-you/
 	
 
