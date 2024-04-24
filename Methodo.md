@@ -198,6 +198,7 @@ TI AD :
 	- https://github.com/ly4k/SpoolFool
 	- https://github.com/zblurx/certsync
 	- https://github.com/garrettfoster13/sccmhunter
+	- https://decoder.cloud/2024/04/24/hello-im-your-domain-admin-and-i-want-to-authenticate-against-you/
 	
 
 top 3 des trucs que j'aimerai mieux comprendre dans Windows : DCE/RPC, COM/DCOM, WMI
